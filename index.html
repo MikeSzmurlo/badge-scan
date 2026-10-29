@@ -54,6 +54,7 @@ button, input, textarea { font: inherit; color: inherit; }
 .guide i:nth-child(2) { top: -2px; right: -2px; border-left: 0; border-bottom: 0; border-radius: 0 18px 0 0; }
 .guide i:nth-child(3) { bottom: -2px; left: -2px; border-right: 0; border-top: 0; border-radius: 0 0 0 18px; }
 .guide i:nth-child(4) { bottom: -2px; right: -2px; border-left: 0; border-top: 0; border-radius: 0 0 18px 0; }
+.aim { position: absolute; left: 50%; top: 50%; width: 14px; height: 14px; margin: -7px 0 0 -7px; border-radius: 50%; border: 2px solid var(--cam-br); box-shadow: 0 0 0 3px rgba(5, 7, 15, .35); }
 .qrbox { position: absolute; border: 3px solid var(--track); border-radius: 8px; pointer-events: none; transition: border-color .15s ease, transform .1s linear; }
 .qrbox.lock { border-color: var(--lock); }
 .flash { position: absolute; inset: 0; background: #fff; opacity: 0; pointer-events: none; }
@@ -89,7 +90,10 @@ button, input, textarea { font: inherit; color: inherit; }
 .shutter { width: 70px; height: 70px; border-radius: 50%; border: 4px solid var(--cam-ink); background: transparent; padding: 0; cursor: pointer; position: relative; }
 .shutter::after { content: ""; position: absolute; inset: 5px; border-radius: 50%; background: var(--cam-ink); transition: transform .1s ease; }
 .shutter:active::after { transform: scale(.88); }
-.autopill { justify-self: end; font-size: 12px; color: var(--cam-muted); text-align: right; line-height: 1.3; max-width: 110px; }
+.rightc { justify-self: end; display: flex; justify-content: flex-end; }
+.farbtn { height: 44px; padding: 0 14px; border-radius: 12px; border: 1px solid rgba(255, 255, 255, .22); background: var(--cam-glass); color: var(--cam-ink); font-weight: 600; font-size: 14px; cursor: pointer; white-space: nowrap; }
+.farbtn[aria-pressed="true"] { background: var(--cam-br); border-color: var(--cam-br); color: #0B0E1B; }
+.autopill { font-size: 12px; color: var(--cam-muted); text-align: right; line-height: 1.3; max-width: 110px; }
 .autopill b { display: block; color: var(--lock); font-weight: 600; font-size: 13px; }
 
 /* ---------- start screen ---------- */
@@ -166,7 +170,7 @@ button, input, textarea { font: inherit; color: inherit; }
 
 <section class="cam" id="cam" aria-label="Camera">
   <video id="video" playsinline muted autoplay></video>
-  <div class="guide" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+  <div class="guide" aria-hidden="true"><i></i><i></i><i></i><i></i><b class="aim"></b></div>
   <div class="qrbox" id="qrbox" hidden></div>
   <div class="flash" id="flash"></div>
   <div class="ctop">
@@ -179,7 +183,7 @@ button, input, textarea { font: inherit; color: inherit; }
     <div class="ctrls">
       <button class="leadsbtn" id="leadsBtn" type="button">Leads <b id="leadCount">0</b></button>
       <button class="shutter" id="shutter" type="button" aria-label="Take the photo yourself"></button>
-      <div class="autopill"><b>Auto snap on</b>Hold the badge still</div>
+      <div class="rightc"><button class="farbtn" id="farBtn" type="button" aria-pressed="false" hidden>Far mode</button><div class="autopill" id="autopill"><b>Auto snap on</b>Aim the dot at the QR</div></div>
     </div>
   </div>
 </section>
@@ -192,10 +196,10 @@ button, input, textarea { font: inherit; color: inherit; }
       <rect x="31" y="70" width="18" height="16" rx="2" stroke-width="2"/>
     </svg>
     <h1>Badge to Lead</h1>
-    <p>Point your phone at a badge. When the QR code holds still for half a second the photo snaps on its own and the name, company and badge type are read right on your phone.</p>
+    <p>Point your phone at a badge. When the QR code is steady for a moment the photo snaps on its own and the name, company and badge type are read right on your phone.</p>
     <ol class="steps">
-      <li>Ask first, then hold the phone about a forearm away.</li>
-      <li>Keep the whole badge inside the frame until you see the flash.</li>
+      <li>Ask first, then point from arm's length or closer. If your iPhone has a zoom lens, tap Far mode to reach a step further.</li>
+      <li>Aim the center dot at the badge's QR code and hold steady until you see the flash.</li>
       <li>Add a note while the conversation is fresh.</li>
     </ol>
     <div id="startErr" class="err" hidden></div>
@@ -247,7 +251,7 @@ button, input, textarea { font: inherit; color: inherit; }
   const uid = () => "l" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
   const FIELDS = ["first", "last", "company", "title", "badgeType", "note"];
 
-  const settings = Object.assign({ event: "", sound: true }, LS.get("b2l-settings", {}));
+  const settings = Object.assign({ event: "", sound: true, far: false }, LS.get("b2l-settings", {}));
   const saveSettings = () => LS.set("b2l-settings", settings);
   let leads = LS.get("b2l-leads", []);
   function persist() {
@@ -278,9 +282,11 @@ button, input, textarea { font: inherit; color: inherit; }
 
   // ---------- camera ----------
   const video = $("#video");
-  let stream = null, running = false, raf = 0, lastDet = 0, pauseUntil = 0;
-  const det = document.createElement("canvas");
-  const dctx = det.getContext("2d", { willReadFrequently: true });
+  let stream = null, running = false, raf = 0, lastDet = 0, pauseUntil = 0, pass = 0;
+  let teleId = null, zoomCap = null;
+  const detFull = document.createElement("canvas"), detMid = document.createElement("canvas");
+  const fctx = detFull.getContext("2d", { willReadFrequently: true }), mctx = detMid.getContext("2d", { willReadFrequently: true });
+  const detZoom = document.createElement("canvas"), zctx = detZoom.getContext("2d", { willReadFrequently: true });
   const cap = document.createElement("canvas");
   const cctx = cap.getContext("2d", { willReadFrequently: true });
 
@@ -290,8 +296,15 @@ button, input, textarea { font: inherit; color: inherit; }
       err.textContent = "The camera only works when this page is opened from an https:// address. Upload it to a site first, then open that link in Safari.";
       err.hidden = false; return false;
     }
+    // Ask for the sharpest feed the phone offers; Far mode switches to the telephoto lens when there is one
+    const v = { width: { ideal: 3840 }, height: { ideal: 2160 } };
+    if (settings.far && teleId) v.deviceId = { exact: teleId }; else v.facingMode = { ideal: "environment" };
     try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: { ideal: "environment" }, width: { ideal: 1920 }, height: { ideal: 1080 } } });
+      try { stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: v }); }
+      catch (e1) {
+        if (e1 && e1.name === "NotAllowedError") throw e1;
+        stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: { ideal: "environment" } } });
+      }
     } catch (e) {
       const n = e && e.name;
       err.textContent = n === "NotAllowedError"
@@ -303,7 +316,36 @@ button, input, textarea { font: inherit; color: inherit; }
     try { await video.play(); } catch {}
     running = true; raf = requestAnimationFrame(tick);
     wakeLock();
+    await findLenses();
     return true;
+  }
+  async function findLenses() {
+    try {
+      const cams = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === "videoinput");
+      const tele = cams.find((d) => /telephoto/i.test(d.label));
+      teleId = tele ? tele.deviceId : null;
+    } catch { teleId = null; }
+    zoomCap = null;
+    try {
+      const track = stream && stream.getVideoTracks()[0];
+      const c = track && track.getCapabilities ? track.getCapabilities() : null;
+      if (c && c.zoom && c.zoom.max > 1.2) {
+        zoomCap = c.zoom;
+        if (!teleId && settings.far) await track.applyConstraints({ advanced: [{ zoom: Math.min(c.zoom.max, 3) }] });
+      }
+    } catch {}
+    // Far mode was left on last time: hop over to the telephoto lens once its name is known
+    try {
+      const label = stream ? stream.getVideoTracks()[0].label : "";
+      if (settings.far && teleId && !/telephoto/i.test(label) && !findLenses.hopped) {
+        findLenses.hopped = true; stopCamera(); await startCamera(); return;
+      }
+    } catch {}
+    const btn = $("#farBtn");
+    btn.hidden = !(teleId || zoomCap);
+    btn.setAttribute("aria-pressed", String(!!settings.far));
+    btn.textContent = settings.far ? "Far mode on" : "Far mode";
+    $("#autopill").hidden = !btn.hidden;
   }
   function stopCamera() {
     running = false; cancelAnimationFrame(raf);
@@ -321,43 +363,67 @@ button, input, textarea { font: inherit; color: inherit; }
     lastDet = ts;
     const vw = video.videoWidth, vh = video.videoHeight;
     if (!vw || !vh || typeof window.jsQR !== "function") return;
-    const d = Math.min(1, 960 / Math.max(vw, vh));
-    const w = Math.round(vw * d), h = Math.round(vh * d);
-    if (det.width !== w || det.height !== h) { det.width = w; det.height = h; }
-    dctx.drawImage(video, 0, 0, w, h);
+    // Alternate two looks: the middle of the frame at full camera resolution (far badges),
+    // and the whole frame scaled down (close badges and badges off to the side)
+    pass = (pass + 1) % 4;
+    let c, x, d = 1, ox = 0, oy = 0, w, h;
+    if (pass >= 2) {
+      // Far looks: a patch around the frame center, enlarged 3x or 4x so tiny QR codes become readable
+      const patch = pass === 2 ? 480 : 360;
+      const sw = Math.min(vw, patch), sh = Math.min(vh, patch);
+      ox = Math.round((vw - sw) / 2); oy = Math.round(Math.min(vh - sh, Math.max(0, vh * 0.46 - sh / 2)));
+      d = pass === 2 ? 3 : 4; w = sw * d; h = sh * d;
+      c = detZoom; x = zctx;
+      if (c.width !== w || c.height !== h) { c.width = w; c.height = h; }
+      x.imageSmoothingEnabled = true; x.imageSmoothingQuality = "high";
+      x.drawImage(video, ox, oy, sw, sh, 0, 0, w, h);
+    } else if (pass === 1) {
+      w = Math.min(vw, Math.max(720, Math.min(1400, Math.round(vw * 0.62))));
+      h = Math.min(vh, Math.max(720, Math.min(1400, Math.round(vh * 0.62))));
+      ox = Math.round((vw - w) / 2); oy = Math.round(Math.min(vh - h, Math.max(0, vh * 0.46 - h / 2)));
+      c = detMid; x = mctx;
+      if (c.width !== w || c.height !== h) { c.width = w; c.height = h; }
+      x.drawImage(video, ox, oy, w, h, 0, 0, w, h);
+    } else {
+      d = Math.min(1, 1280 / Math.max(vw, vh));
+      w = Math.round(vw * d); h = Math.round(vh * d);
+      c = detFull; x = fctx;
+      if (c.width !== w || c.height !== h) { c.width = w; c.height = h; }
+      x.drawImage(video, 0, 0, w, h);
+    }
     let r = null;
-    try { const img = dctx.getImageData(0, 0, w, h); r = window.jsQR(img.data, w, h, { inversionAttempts: "dontInvert" }); } catch {}
-    onDetect(r, d, ts);
+    try { const img = x.getImageData(0, 0, w, h); r = window.jsQR(img.data, w, h, { inversionAttempts: "dontInvert" }); } catch {}
+    onDetect(r, d, ox, oy);
   }
 
-  function boxOf(loc, d) {
+  function boxOf(loc, d, ox, oy) {
     const pts = [loc.topLeftCorner, loc.topRightCorner, loc.bottomLeftCorner, loc.bottomRightCorner];
-    const xs = pts.map((p) => p.x / d), ys = pts.map((p) => p.y / d);
+    const xs = pts.map((p) => p.x / d + ox), ys = pts.map((p) => p.y / d + oy);
     return { x0: Math.min(...xs), x1: Math.max(...xs), y0: Math.min(...ys), y1: Math.max(...ys) };
   }
   const near = (a, b) => {
     const sa = Math.max(a.x1 - a.x0, a.y1 - a.y0), sb = Math.max(b.x1 - b.x0, b.y1 - b.y0);
     const dx = (a.x0 + a.x1 - b.x0 - b.x1) / 2, dy = (a.y0 + a.y1 - b.y0 - b.y1) / 2;
-    return Math.hypot(dx, dy) < 0.09 * sa && Math.abs(sa - sb) / sa < 0.12;
+    return Math.hypot(dx, dy) < 0.16 * sa && Math.abs(sa - sb) / sa < 0.2;
   };
 
-  function onDetect(r, d, ts) {
+  function onDetect(r, d, ox, oy) {
     if (!r || !r.data) {
       lost++;
-      if (lost > 5) { cur = null; stable = 0; $("#qrbox").hidden = true; setStatus("Point at a badge"); }
+      if (lost > 8) { cur = null; stable = 0; $("#qrbox").hidden = true; setStatus("Point at a badge"); }
       return;
     }
     lost = 0;
-    const box = boxOf(r.location, d);
+    const box = boxOf(r.location, d, ox, oy);
     const data = String(r.data).trim().slice(0, 300);
     stable = (cur && cur.data === data && near(cur.box, box)) ? stable + 1 : 1;
     cur = { data, box };
     const known = leads.find((l) => l.badgeId === data);
-    drawBox(box, !!known || stable >= 3);
+    drawBox(box, !!known || stable >= 2);
     if (known) { setStatus(`Already have ${fullName(known) || "this badge"}`, "dupe"); return; }
     if (taken.has(data)) return;
-    if (stable >= 3) { capture(box, data); return; }
-    setStatus(stable >= 2 ? "Hold steady" : "Badge found", "track");
+    if (stable >= 2) { capture(box, data); return; }
+    setStatus("Hold steady", "track");
   }
 
   function drawBox(b, lock) {
@@ -455,7 +521,7 @@ button, input, textarea { font: inherit; color: inherit; }
     const job = { lead };
     if (box) {
       const s = Math.max(box.x1 - box.x0, box.y1 - box.y0), cx = (box.x0 + box.x1) / 2;
-      const scale = Math.max(1, Math.min(3, 300 / s));
+      const scale = Math.max(0.4, Math.min(4, 300 / s));
       const nb = clampBox({ x0: cx - 2.1 * s, x1: cx + 2.1 * s, y0: box.y0 - 3.5 * s, y1: box.y0 + 0.05 * s }, W, H);
       const sb = clampBox({ x0: box.x0 - 2.4 * s, x1: box.x0 - 0.02 * s, y0: box.y0 - 0.1 * s, y1: box.y1 + 0.1 * s }, W, H);
       const tb = clampBox({ x0: cx - 2.4 * s, x1: cx + 2.4 * s, y0: box.y0 - 3.8 * s, y1: box.y1 + 0.7 * s }, W, H);
@@ -675,6 +741,16 @@ button, input, textarea { font: inherit; color: inherit; }
     if (!running) return;
     const fresh = cur && lost === 0;
     capture(fresh ? cur.box : null, fresh ? cur.data : "");
+  });
+  $("#farBtn").addEventListener("click", async () => {
+    settings.far = !settings.far; saveSettings();
+    cur = null; stable = 0; $("#qrbox").hidden = true;
+    if (teleId) { stopCamera(); await startCamera(); }
+    else if (zoomCap && stream) {
+      try { await stream.getVideoTracks()[0].applyConstraints({ advanced: [{ zoom: settings.far ? Math.min(zoomCap.max, 3) : Math.max(zoomCap.min || 1, 1) }] }); } catch {}
+      await findLenses();
+    }
+    toast(settings.far ? "Far mode on. Step back a bit, close badges may blur." : "Far mode off.");
   });
   $("#leadsBtn").addEventListener("click", () => openSheet());
   $("#evchip").addEventListener("click", () => { openSheet(); setTimeout(() => $("#event").focus(), 50); });
