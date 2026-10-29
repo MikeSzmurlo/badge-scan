@@ -1,0 +1,730 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Badge Scan">
+<meta name="theme-color" content="#05070F">
+<title>Badge to Lead</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,500..900&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: full screen camera that snaps on its own when a badge QR holds still; the lead list slides up as a sheet. */
+:root {
+  --bg: #EDEFF4; --surface: #FFFFFF; --sunk: #F4F5F9; --ink: #11162B; --muted: #5A6179; --line: #D4D8E3;
+  --accent: #2148D0; --accent-ink: #FFFFFF; --accent-soft: #DDE5FF;
+  --ok: #157A4B; --ok-soft: #D8F1E4; --warn: #8E5300; --warn-soft: #FAEACC; --danger: #B42318; --danger-soft: #FBE1DE;
+  --cam: #05070F; --cam-ink: #F3F5FB; --cam-muted: #A8B0CC; --cam-br: #9DB2FF; --cam-glass: rgba(10, 13, 28, .72); --track: #FFD24A; --lock: #5CE0A0;
+  --f-display: "Archivo", "Arial Narrow", Arial, sans-serif;
+  --f-body: "IBM Plex Sans", -apple-system, "Segoe UI", Roboto, sans-serif;
+  --f-mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0B0E1B; --surface: #161A2C; --sunk: #10142A; --ink: #E9ECF6; --muted: #9AA1BD; --line: #283052;
+    --accent: #8EA5FF; --accent-ink: #0B0E1B; --accent-soft: #1E2853;
+    --ok: #5CD49C; --ok-soft: #12332A; --warn: #F0B256; --warn-soft: #382811; --danger: #FF8B80; --danger-soft: #3B1916;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0B0E1B; --surface: #161A2C; --sunk: #10142A; --ink: #E9ECF6; --muted: #9AA1BD; --line: #283052;
+  --accent: #8EA5FF; --accent-ink: #0B0E1B; --accent-soft: #1E2853;
+  --ok: #5CD49C; --ok-soft: #12332A; --warn: #F0B256; --warn-soft: #382811; --danger: #FF8B80; --danger-soft: #3B1916;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body { background: var(--cam); color: var(--ink); font: 15px/1.45 var(--f-body); -webkit-text-size-adjust: 100%; overflow: hidden; overscroll-behavior: none; }
+button, input, textarea { font: inherit; color: inherit; }
+[hidden] { display: none !important; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* ---------- camera ---------- */
+.cam { position: fixed; inset: 0; background: var(--cam); color: var(--cam-ink); overflow: hidden; }
+.cam video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.guide { position: absolute; left: 50%; top: 46%; width: min(72vw, 52vh); aspect-ratio: 3 / 4; transform: translate(-50%, -50%); border-radius: 18px; box-shadow: 0 0 0 200vmax rgba(5, 7, 15, .38); pointer-events: none; }
+.guide i { position: absolute; width: 30px; height: 30px; border: 3px solid var(--cam-br); }
+.guide i:nth-child(1) { top: -2px; left: -2px; border-right: 0; border-bottom: 0; border-radius: 18px 0 0 0; }
+.guide i:nth-child(2) { top: -2px; right: -2px; border-left: 0; border-bottom: 0; border-radius: 0 18px 0 0; }
+.guide i:nth-child(3) { bottom: -2px; left: -2px; border-right: 0; border-top: 0; border-radius: 0 0 0 18px; }
+.guide i:nth-child(4) { bottom: -2px; right: -2px; border-left: 0; border-top: 0; border-radius: 0 0 18px 0; }
+.qrbox { position: absolute; border: 3px solid var(--track); border-radius: 8px; pointer-events: none; transition: border-color .15s ease, transform .1s linear; }
+.qrbox.lock { border-color: var(--lock); }
+.flash { position: absolute; inset: 0; background: #fff; opacity: 0; pointer-events: none; }
+.flash.go { animation: flash .35s ease-out; }
+@keyframes flash { from { opacity: .85; } to { opacity: 0; } }
+
+.ctop { position: absolute; left: 0; right: 0; top: 0; display: flex; align-items: center; gap: 10px; padding: calc(env(safe-area-inset-top, 0px) + 10px) max(14px, env(safe-area-inset-right, 0px)) 10px max(14px, env(safe-area-inset-left, 0px)); background: linear-gradient(to bottom, rgba(5, 7, 15, .7), rgba(5, 7, 15, 0)); }
+.brand { display: flex; align-items: center; gap: 8px; font-family: var(--f-display); font-weight: 800; font-stretch: 112%; font-size: 17px; white-space: nowrap; }
+.mark { width: 18px; height: 22px; border: 2px solid currentColor; border-radius: 3px 3px 5px 5px; position: relative; flex: none; }
+.mark::before { content: ""; position: absolute; top: 2px; left: 50%; width: 7px; height: 3px; margin-left: -3.5px; border-radius: 2px; background: currentColor; }
+.mark::after { content: ""; position: absolute; left: 2px; right: 2px; bottom: 3px; height: 2px; background: var(--cam-br); }
+.evchip { margin-left: auto; min-width: 0; max-width: 46vw; display: inline-flex; align-items: center; gap: 6px; border: 1px solid rgba(255, 255, 255, .25); background: var(--cam-glass); color: var(--cam-ink); border-radius: 999px; height: 34px; padding: 0 12px; font-size: 13px; cursor: pointer; }
+.evchip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.cstatus { position: absolute; left: 50%; top: calc(46% + min(48vw, 34.6vh) + 14px); transform: translateX(-50%); display: inline-flex; align-items: center; gap: 8px; background: var(--cam-glass); border-radius: 999px; padding: 7px 14px; font-size: 14px; font-weight: 500; white-space: nowrap; max-width: calc(100vw - 32px); overflow: hidden; text-overflow: ellipsis; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--cam-muted); flex: none; }
+.cstatus.track .dot { background: var(--track); }
+.cstatus.lock .dot { background: var(--lock); }
+.cstatus.dupe .dot { background: var(--cam-br); }
+
+.cbottom { position: absolute; left: 0; right: 0; bottom: 0; display: flex; flex-direction: column; gap: 12px; padding: 12px max(14px, env(safe-area-inset-right, 0px)) calc(env(safe-area-inset-bottom, 0px) + 14px) max(14px, env(safe-area-inset-left, 0px)); background: linear-gradient(to top, rgba(5, 7, 15, .85) 40%, rgba(5, 7, 15, 0)); }
+.lastcard { display: flex; gap: 12px; align-items: center; background: var(--cam-glass); border: 1px solid rgba(255, 255, 255, .14); border-radius: 14px; padding: 10px; -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); animation: rise .35s cubic-bezier(.2, 1.3, .4, 1); }
+@keyframes rise { from { transform: translateY(14px); opacity: 0; } to { transform: none; opacity: 1; } }
+.lastcard img, .lastcard .ph { width: 46px; height: 58px; border-radius: 6px; object-fit: cover; flex: none; background: #222842; }
+.lastcard .who { flex: 1; min-width: 0; }
+.lastcard .nm { font-family: var(--f-display); font-weight: 800; font-stretch: 108%; font-size: 18px; line-height: 1.15; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lastcard .co { font-size: 13.5px; color: var(--cam-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lastcard .acts { display: flex; gap: 6px; flex: none; }
+.cbtn { height: 34px; padding: 0 11px; border-radius: 9px; border: 1px solid rgba(255, 255, 255, .22); background: rgba(255, 255, 255, .08); color: var(--cam-ink); font-size: 13px; font-weight: 600; cursor: pointer; }
+.ctrls { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; }
+.leadsbtn { justify-self: start; display: inline-flex; align-items: center; gap: 8px; height: 44px; padding: 0 14px; border-radius: 12px; border: 1px solid rgba(255, 255, 255, .22); background: var(--cam-glass); color: var(--cam-ink); font-weight: 600; cursor: pointer; }
+.leadsbtn b { font-family: var(--f-mono); font-weight: 500; font-variant-numeric: tabular-nums; }
+.shutter { width: 70px; height: 70px; border-radius: 50%; border: 4px solid var(--cam-ink); background: transparent; padding: 0; cursor: pointer; position: relative; }
+.shutter::after { content: ""; position: absolute; inset: 5px; border-radius: 50%; background: var(--cam-ink); transition: transform .1s ease; }
+.shutter:active::after { transform: scale(.88); }
+.autopill { justify-self: end; font-size: 12px; color: var(--cam-muted); text-align: right; line-height: 1.3; max-width: 110px; }
+.autopill b { display: block; color: var(--lock); font-weight: 600; font-size: 13px; }
+
+/* ---------- start screen ---------- */
+.start { position: fixed; inset: 0; z-index: 30; background: var(--cam); color: var(--cam-ink); display: flex; flex-direction: column; justify-content: center; padding: calc(env(safe-area-inset-top, 0px) + 24px) max(22px, env(safe-area-inset-right, 0px)) calc(env(safe-area-inset-bottom, 0px) + 24px) max(22px, env(safe-area-inset-left, 0px)); overflow-y: auto; }
+.start-in { max-width: 420px; margin: 0 auto; display: flex; flex-direction: column; gap: 18px; }
+.start svg { width: 84px; color: var(--cam-br); }
+.start h1 { margin: 0; font-family: var(--f-display); font-weight: 800; font-stretch: 114%; font-size: 40px; line-height: 1; letter-spacing: -.015em; }
+.start p { margin: 0; color: var(--cam-muted); font-size: 16px; }
+.steps { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 10px; counter-reset: s; }
+.steps li { display: grid; grid-template-columns: 28px 1fr; gap: 10px; color: var(--cam-ink); font-size: 15px; counter-increment: s; }
+.steps li::before { content: counter(s); width: 26px; height: 26px; border-radius: 50%; border: 1.5px solid var(--cam-br); color: var(--cam-br); display: grid; place-items: center; font-family: var(--f-mono); font-size: 13px; }
+.go { height: 54px; border-radius: 14px; border: 0; background: var(--cam-br); color: #0B0E1B; font-weight: 700; font-size: 17px; cursor: pointer; }
+.err { background: rgba(255, 139, 128, .14); color: #FFB4AC; border-radius: 12px; padding: 10px 12px; font-size: 14px; }
+.small { font-size: 13px !important; }
+
+/* ---------- sheet ---------- */
+.sheet { position: fixed; inset: 0; z-index: 20; background: var(--bg); color: var(--ink); display: flex; flex-direction: column; animation: up .28s cubic-bezier(.2, .9, .3, 1); }
+@keyframes up { from { transform: translateY(40px); opacity: .3; } to { transform: none; opacity: 1; } }
+.shead { padding: calc(env(safe-area-inset-top, 0px) + 10px) max(16px, env(safe-area-inset-right, 0px)) 10px max(16px, env(safe-area-inset-left, 0px)); border-bottom: 1px solid var(--line); display: flex; flex-direction: column; gap: 10px; background: var(--bg); }
+.srow { display: flex; align-items: center; gap: 10px; }
+.shead h2 { margin: 0; font-family: var(--f-display); font-weight: 800; font-stretch: 108%; font-size: 22px; display: flex; align-items: center; gap: 8px; }
+.count { font-family: var(--f-mono); font-size: 13px; font-weight: 500; color: var(--muted); background: var(--surface); border: 1px solid var(--line); border-radius: 999px; padding: 1px 9px; font-variant-numeric: tabular-nums; }
+.close { margin-left: auto; }
+.sbody { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 14px max(16px, env(safe-area-inset-right, 0px)) calc(env(safe-area-inset-bottom, 0px) + 28px) max(16px, env(safe-area-inset-left, 0px)); display: flex; flex-direction: column; gap: 12px; }
+.wrapmax { width: 100%; max-width: 640px; margin: 0 auto; display: flex; flex-direction: column; gap: 12px; }
+.fld { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.fld span { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+.fld input, .fld textarea, .search { width: 100%; border: 1px solid var(--line); background: var(--surface); border-radius: 10px; padding: 9px 11px; font-size: 16px; min-width: 0; }
+.fld textarea { min-height: 64px; resize: vertical; }
+.fld input:focus, .fld textarea:focus, .search:focus { border-color: var(--accent); outline: none; }
+.tools { display: flex; gap: 8px; flex-wrap: wrap; }
+.btn { display: inline-flex; align-items: center; justify-content: center; height: 40px; padding: 0 13px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface); font-weight: 600; font-size: 14px; cursor: pointer; white-space: nowrap; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.btn.ghost { background: transparent; border-color: transparent; color: var(--muted); }
+.btn.danger { color: var(--danger); border-color: var(--danger-soft); }
+.btn.danger.armed { background: var(--danger); border-color: var(--danger); color: var(--surface); }
+.btn.sm { height: 34px; padding: 0 10px; font-size: 13px; }
+.btn[disabled] { opacity: .5; pointer-events: none; }
+.list { list-style: none; margin: 0; padding: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; }
+.list:empty { display: none; }
+.lead { padding: 12px 14px; border-top: 1px solid var(--line); }
+.lead:first-child { border-top: 0; }
+.row { display: grid; grid-template-columns: 48px 1fr auto; gap: 12px; align-items: start; }
+.lthumb { width: 48px; height: 60px; border-radius: 6px; object-fit: cover; background: var(--sunk); border: 1px solid var(--line); display: grid; place-items: center; font-family: var(--f-display); font-weight: 800; color: var(--muted); }
+.who { min-width: 0; }
+.nm { font-family: var(--f-display); font-weight: 700; font-stretch: 106%; font-size: 17px; line-height: 1.2; overflow-wrap: anywhere; }
+.co { font-size: 14px; color: var(--muted); overflow-wrap: anywhere; }
+.meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin-top: 5px; font-size: 12px; color: var(--muted); }
+.meta time, .bid { font-family: var(--f-mono); font-variant-numeric: tabular-nums; }
+.ribbon { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .07em; color: var(--accent); background: var(--accent-soft); border-radius: 4px; padding: 2px 7px; }
+.pill { font-size: 11px; font-weight: 600; border-radius: 4px; padding: 2px 7px; }
+.pill.check { color: var(--warn); background: var(--warn-soft); }
+.pill.reading { color: var(--muted); background: var(--sunk); }
+.lnote { margin: 6px 0 0; font-size: 13.5px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.form { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--line); }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+@media (max-width: 360px) { .grid2 { grid-template-columns: 1fr; } }
+.acts { display: flex; flex-wrap: wrap; gap: 8px; }
+.empty { text-align: center; color: var(--muted); padding: 22px 16px; border: 1px dashed var(--line); border-radius: 14px; font-size: 14px; }
+.empty strong { display: block; color: var(--ink); font-family: var(--f-display); font-stretch: 106%; font-size: 17px; margin-bottom: 4px; }
+.foot { font-size: 12.5px; color: var(--muted); margin: 6px 0 0; }
+.toggle { display: flex; gap: 10px; align-items: flex-start; font-size: 14px; cursor: pointer; }
+.toggle input { width: 20px; height: 20px; margin: 1px 0 0; accent-color: var(--accent); flex: none; }
+.toggle small { display: block; color: var(--muted); font-size: 12.5px; }
+.fallback textarea { width: 100%; min-height: 110px; font-family: var(--f-mono); font-size: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--sunk); padding: 8px; }
+
+.toast { position: fixed; z-index: 40; left: 50%; top: calc(env(safe-area-inset-top, 0px) + 60px); transform: translate(-50%, -10px); opacity: 0; pointer-events: none; background: #F3F5FB; color: #0B0E1B; border-radius: 12px; padding: 9px 14px; font-size: 14px; font-weight: 500; max-width: calc(100vw - 32px); transition: opacity .2s ease, transform .2s ease; box-shadow: 0 10px 30px -10px rgba(0, 0, 0, .5); }
+.toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+</style>
+</head>
+<body>
+
+<section class="cam" id="cam" aria-label="Camera">
+  <video id="video" playsinline muted autoplay></video>
+  <div class="guide" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+  <div class="qrbox" id="qrbox" hidden></div>
+  <div class="flash" id="flash"></div>
+  <div class="ctop">
+    <div class="brand"><span class="mark" aria-hidden="true"></span>Badge to Lead</div>
+    <button class="evchip" id="evchip" type="button"><span id="evlabel">Name this event</span></button>
+  </div>
+  <div class="cstatus" id="status" role="status"><span class="dot"></span><span id="statusText">Point at a badge</span></div>
+  <div class="cbottom">
+    <div id="last"></div>
+    <div class="ctrls">
+      <button class="leadsbtn" id="leadsBtn" type="button">Leads <b id="leadCount">0</b></button>
+      <button class="shutter" id="shutter" type="button" aria-label="Take the photo yourself"></button>
+      <div class="autopill"><b>Auto snap on</b>Hold the badge still</div>
+    </div>
+  </div>
+</section>
+
+<section class="start" id="start">
+  <div class="start-in">
+    <svg viewBox="0 0 80 100" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" aria-hidden="true">
+      <rect x="6" y="6" width="68" height="88" rx="7"/><rect x="31" y="13" width="18" height="4" rx="2" stroke-width="2.5"/>
+      <line x1="22" y1="38" x2="58" y2="38" stroke-width="5"/><line x1="18" y1="50" x2="62" y2="50"/><line x1="24" y1="61" x2="56" y2="61" stroke-width="2"/>
+      <rect x="31" y="70" width="18" height="16" rx="2" stroke-width="2"/>
+    </svg>
+    <h1>Badge to Lead</h1>
+    <p>Point your phone at a badge. When the QR code holds still for half a second the photo snaps on its own and the name, company and badge type are read right on your phone.</p>
+    <ol class="steps">
+      <li>Ask first, then hold the phone about a forearm away.</li>
+      <li>Keep the whole badge inside the frame until you see the flash.</li>
+      <li>Add a note while the conversation is fresh.</li>
+    </ol>
+    <div id="startErr" class="err" hidden></div>
+    <button class="go" id="goBtn" type="button">Start scanning</button>
+    <p class="small">Everything stays on this phone. Export your list after each event.</p>
+  </div>
+</section>
+
+<section class="sheet" id="sheet" hidden aria-label="Leads">
+  <div class="shead">
+    <div class="srow">
+      <h2>Leads <span class="count" id="count2">0</span></h2>
+      <button class="btn close" id="closeSheet" type="button">Back to camera</button>
+    </div>
+    <label class="fld" for="event"><span>Event</span><input id="event" placeholder="Name this event" autocomplete="off" enterkeyhint="done"></label>
+  </div>
+  <div class="sbody"><div class="wrapmax">
+    <div class="tools">
+      <button class="btn sm" id="copyBtn" type="button">Copy for Sheets</button>
+      <button class="btn sm" id="csvBtn" type="button">Download CSV</button>
+      <button class="btn sm" id="shareBtn" type="button" hidden>Share CSV</button>
+    </div>
+    <div id="fallback" class="fallback" hidden>
+      <p class="foot" style="margin:0 0 6px">Copy didn't go through. Select all the text below and copy it.</p>
+      <textarea id="fallbackText" readonly></textarea>
+    </div>
+    <input id="q" class="search" type="search" placeholder="Search name, company, note" autocomplete="off">
+    <ul class="list" id="list"></ul>
+    <div class="empty" id="empty"><strong>No badges yet</strong>Go back to the camera and point at a badge.</div>
+    <label class="toggle" for="sound"><input id="sound" type="checkbox"><span>Shutter sound<small>A short click when a badge is captured.</small></span></label>
+    <div class="acts"><button class="btn sm danger" id="clearBtn" type="button">Delete all leads</button></div>
+    <p class="foot" id="storeNote">Saved on this phone only. Export before you clear Safari data.</p>
+  </div></div>
+</section>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
+<script>
+(() => {
+  "use strict";
+  const $ = (s) => document.querySelector(s);
+  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const LS = {
+    get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch { return d; } },
+    set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch { return false; } },
+  };
+  const uid = () => "l" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  const FIELDS = ["first", "last", "company", "title", "badgeType", "note"];
+
+  const settings = Object.assign({ event: "", sound: true }, LS.get("b2l-settings", {}));
+  const saveSettings = () => LS.set("b2l-settings", settings);
+  let leads = LS.get("b2l-leads", []);
+  function persist() {
+    if (!LS.set("b2l-leads", leads)) toast("Phone storage is full. Export the list, then delete some leads.");
+  }
+
+  // ---------- UI helpers ----------
+  let toastT;
+  function toast(t) { const el = $("#toast"); el.textContent = t; el.classList.add("show"); clearTimeout(toastT); toastT = setTimeout(() => el.classList.remove("show"), 2600); }
+  const fullName = (l) => [l.first, l.last].filter(Boolean).join(" ");
+  const initials = (l) => (((l.first || "")[0] || "") + ((l.last || "")[0] || "")).toUpperCase() || "?";
+  const fmtTime = (ms) => {
+    const d = new Date(ms), n = new Date();
+    const t = d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+    return d.toDateString() === n.toDateString() ? t : d.toLocaleDateString([], { month: "short", day: "numeric" }) + " " + t;
+  };
+  const stamp = (ms) => { const d = new Date(ms), p = (n) => String(n).padStart(2, "0"); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`; };
+  function setStatus(text, kind) {
+    const el = $("#status");
+    if ($("#statusText").textContent !== text) $("#statusText").textContent = text;
+    el.className = "cstatus" + (kind ? " " + kind : "");
+  }
+  function updateEventLabel() {
+    $("#evlabel").textContent = settings.event || "Name this event";
+    $("#event").value = settings.event || "";
+  }
+  function updateCounts() { $("#leadCount").textContent = leads.length; $("#count2").textContent = leads.length; }
+
+  // ---------- camera ----------
+  const video = $("#video");
+  let stream = null, running = false, raf = 0, lastDet = 0, pauseUntil = 0;
+  const det = document.createElement("canvas");
+  const dctx = det.getContext("2d", { willReadFrequently: true });
+  const cap = document.createElement("canvas");
+  const cctx = cap.getContext("2d", { willReadFrequently: true });
+
+  async function startCamera() {
+    const err = $("#startErr"); err.hidden = true;
+    if (!window.isSecureContext || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      err.textContent = "The camera only works when this page is opened from an https:// address. Upload it to a site first, then open that link in Safari.";
+      err.hidden = false; return false;
+    }
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: { ideal: "environment" }, width: { ideal: 1920 }, height: { ideal: 1080 } } });
+    } catch (e) {
+      const n = e && e.name;
+      err.textContent = n === "NotAllowedError"
+        ? "Camera access is blocked. In Safari tap the aA button, then Website Settings, set Camera to Allow, and reload."
+        : n === "NotFoundError" ? "No camera was found on this device." : "The camera couldn't start. Close other apps using it and try again.";
+      err.hidden = false; return false;
+    }
+    video.srcObject = stream;
+    try { await video.play(); } catch {}
+    running = true; raf = requestAnimationFrame(tick);
+    wakeLock();
+    return true;
+  }
+  function stopCamera() {
+    running = false; cancelAnimationFrame(raf);
+    if (stream) { stream.getTracks().forEach((t) => t.stop()); stream = null; }
+  }
+
+  // detection state
+  let cur = null, stable = 0, lost = 0;
+  const taken = new Set();
+
+  function tick(ts) {
+    if (!running) return;
+    raf = requestAnimationFrame(tick);
+    if (ts - lastDet < 110 || ts < pauseUntil || !$("#sheet").hidden) return;
+    lastDet = ts;
+    const vw = video.videoWidth, vh = video.videoHeight;
+    if (!vw || !vh || typeof window.jsQR !== "function") return;
+    const d = Math.min(1, 960 / Math.max(vw, vh));
+    const w = Math.round(vw * d), h = Math.round(vh * d);
+    if (det.width !== w || det.height !== h) { det.width = w; det.height = h; }
+    dctx.drawImage(video, 0, 0, w, h);
+    let r = null;
+    try { const img = dctx.getImageData(0, 0, w, h); r = window.jsQR(img.data, w, h, { inversionAttempts: "dontInvert" }); } catch {}
+    onDetect(r, d, ts);
+  }
+
+  function boxOf(loc, d) {
+    const pts = [loc.topLeftCorner, loc.topRightCorner, loc.bottomLeftCorner, loc.bottomRightCorner];
+    const xs = pts.map((p) => p.x / d), ys = pts.map((p) => p.y / d);
+    return { x0: Math.min(...xs), x1: Math.max(...xs), y0: Math.min(...ys), y1: Math.max(...ys) };
+  }
+  const near = (a, b) => {
+    const sa = Math.max(a.x1 - a.x0, a.y1 - a.y0), sb = Math.max(b.x1 - b.x0, b.y1 - b.y0);
+    const dx = (a.x0 + a.x1 - b.x0 - b.x1) / 2, dy = (a.y0 + a.y1 - b.y0 - b.y1) / 2;
+    return Math.hypot(dx, dy) < 0.09 * sa && Math.abs(sa - sb) / sa < 0.12;
+  };
+
+  function onDetect(r, d, ts) {
+    if (!r || !r.data) {
+      lost++;
+      if (lost > 5) { cur = null; stable = 0; $("#qrbox").hidden = true; setStatus("Point at a badge"); }
+      return;
+    }
+    lost = 0;
+    const box = boxOf(r.location, d);
+    const data = String(r.data).trim().slice(0, 300);
+    stable = (cur && cur.data === data && near(cur.box, box)) ? stable + 1 : 1;
+    cur = { data, box };
+    const known = leads.find((l) => l.badgeId === data);
+    drawBox(box, !!known || stable >= 3);
+    if (known) { setStatus(`Already have ${fullName(known) || "this badge"}`, "dupe"); return; }
+    if (taken.has(data)) return;
+    if (stable >= 3) { capture(box, data); return; }
+    setStatus(stable >= 2 ? "Hold steady" : "Badge found", "track");
+  }
+
+  function drawBox(b, lock) {
+    const el = $("#qrbox");
+    const vw = video.videoWidth, vh = video.videoHeight, cw = video.clientWidth, ch = video.clientHeight;
+    const k = Math.max(cw / vw, ch / vh), ox = (cw - vw * k) / 2, oy = (ch - vh * k) / 2;
+    el.style.left = (b.x0 * k + ox - 6) + "px"; el.style.top = (b.y0 * k + oy - 6) + "px";
+    el.style.width = ((b.x1 - b.x0) * k + 12) + "px"; el.style.height = ((b.y1 - b.y0) * k + 12) + "px";
+    el.classList.toggle("lock", lock); el.hidden = false;
+  }
+
+  // ---------- capture ----------
+  let audioCtx = null;
+  function click() {
+    if (!settings.sound || !audioCtx) return;
+    try {
+      const t = audioCtx.currentTime, len = 0.06;
+      const buf = audioCtx.createBuffer(1, Math.floor(audioCtx.sampleRate * len), audioCtx.sampleRate);
+      const ch = buf.getChannelData(0);
+      for (let i = 0; i < ch.length; i++) ch[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / ch.length, 3);
+      const src = audioCtx.createBufferSource(), g = audioCtx.createGain();
+      g.gain.value = 0.35; src.buffer = buf; src.connect(g).connect(audioCtx.destination); src.start(t);
+    } catch {}
+  }
+  function flash() { const f = $("#flash"); f.classList.remove("go"); void f.offsetWidth; f.classList.add("go"); if (navigator.vibrate) navigator.vibrate(30); click(); }
+
+  function grabFrame() {
+    const vw = video.videoWidth, vh = video.videoHeight;
+    if (cap.width !== vw || cap.height !== vh) { cap.width = vw; cap.height = vh; }
+    cctx.drawImage(video, 0, 0, vw, vh);
+    return { W: vw, H: vh };
+  }
+  const clampBox = (b, W, H) => ({ x0: Math.max(0, Math.round(b.x0)), y0: Math.max(0, Math.round(b.y0)), x1: Math.min(W, Math.round(b.x1)), y1: Math.min(H, Math.round(b.y1)) });
+  function crop(b, scale) {
+    const w = Math.max(1, Math.round((b.x1 - b.x0) * scale)), h = Math.max(1, Math.round((b.y1 - b.y0) * scale));
+    const c = document.createElement("canvas"); c.width = w; c.height = h;
+    const x = c.getContext("2d", { willReadFrequently: true });
+    x.imageSmoothingEnabled = true; x.imageSmoothingQuality = "high";
+    x.drawImage(cap, b.x0, b.y0, b.x1 - b.x0, b.y1 - b.y0, 0, 0, w, h);
+    return c;
+  }
+  function toGray(c) {
+    const x = c.getContext("2d", { willReadFrequently: true });
+    const img = x.getImageData(0, 0, c.width, c.height), p = img.data;
+    const g = new Uint8ClampedArray(c.width * c.height);
+    for (let i = 0, j = 0; j < g.length; i += 4, j++) g[j] = 0.299 * p[i] + 0.587 * p[i + 1] + 0.114 * p[i + 2];
+    return { x, img, g };
+  }
+  function writeGray(o, f) {
+    const p = o.img.data;
+    for (let i = 0, j = 0; j < o.g.length; i += 4, j++) { const v = f(o.g[j], j); p[i] = p[i + 1] = p[i + 2] = v; p[i + 3] = 255; }
+    o.x.putImageData(o.img, 0, 0);
+  }
+  function pct(arr, lowP, highP) {
+    const h = new Uint32Array(256); for (let i = 0; i < arr.length; i++) h[arr[i] | 0]++;
+    const n = arr.length; let acc = 0, lo = 0, hi = 255;
+    for (let v = 0; v < 256; v++) { acc += h[v]; if (acc >= n * lowP) { lo = v; break; } }
+    acc = 0; for (let v = 255; v >= 0; v--) { acc += h[v]; if (acc >= n * (1 - highP)) { hi = v; break; } }
+    return [lo, Math.max(hi, lo + 1)];
+  }
+  // Name zone: smooth upscale plus 2% contrast stretch (tested best on badge print behind plastic)
+  function prepStretch(c) {
+    const o = toGray(c); const [lo, hi] = pct(o.g, 0.02, 0.98);
+    writeGray(o, (v) => Math.max(0, Math.min(255, (v - lo) * 255 / (hi - lo))));
+    return c;
+  }
+  // Side zone: divide by blurred background so lanyard edges and shadows drop out
+  function prepFlatten(c, block) {
+    const o = toGray(c);
+    writeGray(o, (v) => v);
+    const sw = Math.max(1, Math.round(c.width / block)), sh = Math.max(1, Math.round(c.height / block));
+    const s = document.createElement("canvas"); s.width = sw; s.height = sh;
+    const sx = s.getContext("2d"); sx.imageSmoothingEnabled = true; sx.drawImage(c, 0, 0, sw, sh);
+    const b = document.createElement("canvas"); b.width = c.width; b.height = c.height;
+    const bx = b.getContext("2d", { willReadFrequently: true }); bx.imageSmoothingEnabled = true; bx.drawImage(s, 0, 0, c.width, c.height);
+    const bg = bx.getImageData(0, 0, c.width, c.height).data;
+    const n = new Uint8ClampedArray(o.g.length);
+    for (let j = 0; j < n.length; j++) n[j] = Math.min(255, o.g[j] / Math.max(1, bg[j * 4]) * 255);
+    const [lo, hi] = pct(n, 0.01, 0.99);
+    o.g = n; writeGray(o, (v) => Math.max(0, Math.min(255, (v - lo) * 255 / (hi - lo))));
+    return c;
+  }
+  function thumb(b) {
+    const c = crop(b, Math.min(1, 200 / Math.max(1, b.x1 - b.x0)));
+    return c.toDataURL("image/jpeg", 0.62);
+  }
+
+  function capture(box, data) {
+    if (!video.videoWidth) return;
+    if (data) taken.add(data);
+    pauseUntil = performance.now() + 900;
+    const { W, H } = grabFrame();
+    flash();
+    const lead = { id: uid(), badgeId: data || "", first: "", last: "", company: "", title: "", badgeType: "", note: "", event: settings.event || "", scannedAt: Date.now(), thumb: "", status: "reading" };
+    const job = { lead };
+    if (box) {
+      const s = Math.max(box.x1 - box.x0, box.y1 - box.y0), cx = (box.x0 + box.x1) / 2;
+      const scale = Math.max(1, Math.min(3, 300 / s));
+      const nb = clampBox({ x0: cx - 2.1 * s, x1: cx + 2.1 * s, y0: box.y0 - 3.5 * s, y1: box.y0 + 0.05 * s }, W, H);
+      const sb = clampBox({ x0: box.x0 - 2.4 * s, x1: box.x0 - 0.02 * s, y0: box.y0 - 0.1 * s, y1: box.y1 + 0.1 * s }, W, H);
+      const tb = clampBox({ x0: cx - 2.4 * s, x1: cx + 2.4 * s, y0: box.y0 - 3.8 * s, y1: box.y1 + 0.7 * s }, W, H);
+      lead.thumb = thumb(tb);
+      job.mode = "qr"; job.s = s * scale;
+      job.name = (nb.x1 - nb.x0 > 8 && nb.y1 - nb.y0 > 8) ? prepStretch(crop(nb, scale)) : null;
+      job.side = (sb.x1 - sb.x0 > 8 && sb.y1 - sb.y0 > 8) ? prepFlatten(crop(sb, scale), 0.5 * s * scale) : null;
+    } else {
+      const zb = clampBox({ x0: W * 0.08, x1: W * 0.92, y0: H * 0.14, y1: H * 0.78 }, W, H);
+      lead.thumb = thumb(zb);
+      const scale = Math.max(1, Math.min(2, 1400 / (zb.x1 - zb.x0)));
+      job.mode = "free"; job.name = prepStretch(crop(zb, scale));
+    }
+    leads.unshift(lead); persist(); updateCounts();
+    lastId = lead.id; renderLast();
+    setStatus("Got it, reading", "lock");
+    enqueue(job);
+  }
+
+  // ---------- reading (on device) ----------
+  let worker = null, workerReady = null;
+  function getWorker() {
+    if (!workerReady) {
+      workerReady = (async () => {
+        if (!window.Tesseract) throw new Error("no tesseract");
+        const w = await window.Tesseract.createWorker("eng", 1, window.__TESS_OPTS || {});
+        await w.setParameters({ tessedit_pageseg_mode: "11" });
+        worker = w; return w;
+      })();
+      workerReady.catch(() => { workerReady = null; });
+    }
+    return workerReady;
+  }
+  const queue = []; let busy = false;
+  function enqueue(job) { queue.push(job); pump(); }
+  async function pump() {
+    if (busy) return; busy = true;
+    while (queue.length) {
+      const job = queue.shift();
+      try { await readJob(job); }
+      catch { markCheck(job.lead, "Couldn't read this one. Type the name in."); }
+    }
+    busy = false;
+  }
+  const linesOf = (r) => ((r && r.data && r.data.lines) || []).map((l) => ({ text: l.text, conf: l.confidence, x0: l.bbox.x0, y0: l.bbox.y0, x1: l.bbox.x1, y1: l.bbox.y1 }));
+
+  async function readJob(job) {
+    const w = await getWorker();
+    const out = { first: "", last: "", company: "", badgeType: "" };
+    let ok = false;
+    if (job.name) {
+      const r = await w.recognize(job.name);
+      const p = parseNames(linesOf(r), job.mode === "qr" ? job.s : 0, job.name.width);
+      Object.assign(out, p.fields); ok = p.ok;
+    }
+    if (job.side) {
+      const r = await w.recognize(job.side);
+      out.badgeType = parseSide(linesOf(r));
+    }
+    const l = leads.find((x) => x.id === job.lead.id);
+    if (!l) return;
+    if (!l.edited) { l.first = out.first; l.last = out.last; l.company = out.company; l.badgeType = out.badgeType; }
+    l.status = ok && job.mode === "qr" ? "ok" : "check";
+    persist(); renderLast(); if (!$("#sheet").hidden) renderList();
+    if (l.id === lastId && $("#sheet").hidden) setStatus(ok ? `Saved ${fullName(l)}` : "Saved, check the name", "lock");
+  }
+  function markCheck(lead, msg) {
+    const l = leads.find((x) => x.id === lead.id); if (!l) return;
+    l.status = "check"; persist(); renderLast(); if (!$("#sheet").hidden) renderList(); toast(msg);
+  }
+
+  // ---------- parsing ----------
+  function cleanText(t) {
+    return String(t || "").replace(/[|_~`^"“”<>{}\[\]\\]+/g, " ").replace(/\s+/g, " ").trim()
+      .replace(/^[^\p{L}\p{N}&(]+|[^\p{L}\p{N}.)&]+$/gu, "");
+  }
+  function cleanName(t) {
+    t = String(t || "").replace(/[^\p{L}\p{M}'’.\- ]+/gu, " ").replace(/\s+/g, " ").trim().replace(/^[^\p{L}]+|[^\p{L}.]+$/gu, "");
+    if (t.length > 3 && t === t.toUpperCase()) t = t.toLowerCase().replace(/(^|[\s\-'’])(\p{L})/gu, (m, a, b) => a + b.toUpperCase());
+    return t;
+  }
+  const letterRatio = (t) => { const s = t.replace(/\s/g, ""); return s ? (s.match(/\p{L}/gu) || []).length / s.length : 0; };
+  function parseNames(lines, s, W) {
+    let L = lines.map((l) => Object.assign({}, l, { text: cleanText(l.text), h: l.y1 - l.y0, cx: (l.x0 + l.x1) / 2 }))
+      .filter((l) => l.text.replace(/[^\p{L}]/gu, "").length >= 2 && letterRatio(l.text) >= 0.7 && l.conf >= 35);
+    if (s) L = L.filter((l) => l.h >= 0.18 * s && Math.abs(l.cx - W / 2) <= 1.9 * s);
+    else { const m = Math.max(0, ...L.map((l) => l.h)); L = L.filter((l) => l.h >= 0.45 * m && Math.abs(l.cx - W / 2) <= W * 0.35); }
+    L.sort((a, b) => a.y0 - b.y0);
+    const use = s ? L.slice(-3) : L.slice(0, 3);
+    const t = use.map((l) => l.text), f = { first: "", last: "", company: "" };
+    if (t.length >= 3) { f.first = cleanName(t[0]); f.last = cleanName(t[1]); f.company = t[2]; }
+    else if (t.length === 2) {
+      const parts = cleanName(t[0]).split(" ");
+      if (parts.length > 1) { f.first = parts[0]; f.last = parts.slice(1).join(" "); f.company = t[1]; }
+      else { f.first = parts[0]; f.last = cleanName(t[1]); }
+    } else if (t.length === 1) { const parts = cleanName(t[0]).split(" "); f.first = parts[0] || ""; f.last = parts.slice(1).join(" "); }
+    f.company = f.company.slice(0, 120);
+    const minConf = use.length ? Math.min(...use.map((l) => l.conf)) : 0;
+    return { fields: f, ok: !!(f.first && f.last && f.company) && minConf >= 60 };
+  }
+  function parseSide(lines) {
+    const L = lines.map((l) => Object.assign({}, l, { text: cleanText(l.text), h: l.y1 - l.y0 }))
+      .filter((l) => l.text.replace(/[^\p{L}]/gu, "").length >= 3 && letterRatio(l.text) >= 0.8 && l.conf >= 55)
+      .sort((a, b) => b.h - a.h);
+    return L.length ? L[0].text.slice(0, 40) : "";
+  }
+
+  // ---------- last scanned card ----------
+  let lastId = null;
+  function renderLast() {
+    const box = $("#last");
+    const l = lastId && leads.find((x) => x.id === lastId);
+    if (!l) { box.innerHTML = ""; return; }
+    const sub = l.status === "reading" ? "Reading badge" : [l.company, l.badgeType].filter(Boolean).join(" · ") || (l.status === "check" ? "Check the name" : "");
+    const same = box.firstElementChild && box.firstElementChild.dataset.id === l.id;
+    const html = `${l.thumb ? `<img src="${l.thumb}" alt="">` : '<div class="ph"></div>'}
+      <div class="who"><div class="nm">${esc(fullName(l)) || (l.status === "reading" ? "Got the photo" : "Name not read")}</div><div class="co">${esc(sub)}</div></div>
+      <div class="acts"><button class="cbtn" type="button" data-act="note">${l.status === "check" ? "Fix" : "Note"}</button><button class="cbtn" type="button" data-act="undo">Undo</button></div>`;
+    if (same) box.firstElementChild.innerHTML = html;
+    else box.innerHTML = `<div class="lastcard" data-id="${esc(l.id)}">${html}</div>`;
+  }
+
+  // ---------- list ----------
+  const state = { q: "", editing: null, armed: null, clearArmed: false };
+  function filtered() {
+    const q = state.q.trim().toLowerCase();
+    return q ? leads.filter((l) => [l.first, l.last, l.company, l.title, l.note, l.event, l.badgeType].join(" ").toLowerCase().includes(q)) : leads;
+  }
+  const fld = (pre, k, label, v, extra = "") => `<label class="fld" for="${pre}-${k}"><span>${label}</span><input id="${pre}-${k}" value="${esc(v)}" autocomplete="off" ${extra}></label>`;
+  function leadHTML(l) {
+    const ed = state.editing === l.id, pre = "e-" + l.id;
+    const th = l.thumb ? `<img class="lthumb" src="${esc(l.thumb)}" alt="">` : `<div class="lthumb">${esc(initials(l))}</div>`;
+    const sub = [l.title, l.company].filter(Boolean).join(" · ");
+    return `<li class="lead" data-id="${esc(l.id)}">
+      <div class="row">${th}
+        <div class="who">
+          <div class="nm">${esc(fullName(l)) || "Name not read"}</div>
+          ${sub ? `<div class="co">${esc(sub)}</div>` : ""}
+          <div class="meta">${l.status === "reading" ? '<span class="pill reading">Reading</span>' : l.status === "check" ? '<span class="pill check">Check</span>' : ""}${l.badgeType ? `<span class="ribbon">${esc(l.badgeType)}</span>` : ""}<time>${esc(fmtTime(l.scannedAt))}</time>${l.event ? `<span>${esc(l.event)}</span>` : ""}</div>
+          ${l.note && !ed ? `<p class="lnote">${esc(l.note)}</p>` : ""}
+        </div>
+        <button class="btn sm ghost" type="button" data-act="edit" aria-expanded="${ed}">${ed ? "Close" : "Edit"}</button>
+      </div>
+      ${ed ? `<div class="form">
+        <div class="grid2">${fld(pre, "first", "First name", l.first, 'autocapitalize="words"')}${fld(pre, "last", "Last name", l.last, 'autocapitalize="words"')}</div>
+        ${fld(pre, "company", "Company", l.company)}
+        <div class="grid2">${fld(pre, "title", "Title", l.title)}${fld(pre, "badgeType", "Badge type", l.badgeType)}</div>
+        <label class="fld" for="${pre}-note"><span>Note</span><textarea id="${pre}-note" placeholder="What you talked about, next step">${esc(l.note)}</textarea></label>
+        ${l.badgeId ? `<div class="bid foot">Badge ID ${esc(l.badgeId)}</div>` : ""}
+        <div class="acts"><button class="btn sm primary" type="button" data-act="save">Save</button><button class="btn sm danger${state.armed === l.id ? " armed" : ""}" type="button" data-act="del">${state.armed === l.id ? "Tap again to delete" : "Delete"}</button></div>
+      </div>` : ""}
+    </li>`;
+  }
+  function renderList() {
+    const list = $("#list");
+    if (list.contains(document.activeElement) && /INPUT|TEXTAREA/.test(document.activeElement.tagName)) return;
+    const items = filtered();
+    list.innerHTML = items.map(leadHTML).join("");
+    const empty = $("#empty");
+    if (!leads.length) { empty.hidden = false; empty.innerHTML = "<strong>No badges yet</strong>Go back to the camera and point at a badge."; }
+    else if (!items.length) { empty.hidden = false; empty.innerHTML = `<strong>No match</strong>Nothing matches “${esc(state.q)}”.`; }
+    else empty.hidden = true;
+    ["#copyBtn", "#csvBtn", "#shareBtn"].forEach((s) => { $(s).disabled = !leads.length; });
+    $("#clearBtn").textContent = state.clearArmed ? `Tap again to delete all ${leads.length}` : "Delete all leads";
+    $("#clearBtn").classList.toggle("armed", state.clearArmed);
+    $("#clearBtn").hidden = !leads.length;
+    updateCounts();
+  }
+  function openSheet(editId, focusField) {
+    $("#sheet").hidden = false; $("#qrbox").hidden = true;
+    state.editing = editId || null; state.armed = null; state.clearArmed = false;
+    if (editId) { state.q = ""; $("#q").value = ""; }
+    renderList();
+    if (editId) {
+      const el = document.getElementById(`e-${editId}-${focusField || "note"}`);
+      if (el) { el.closest("li").scrollIntoView({ block: "center" }); el.focus(); }
+    }
+  }
+  function closeSheet() { $("#sheet").hidden = true; state.editing = null; renderLast(); setStatus("Point at a badge"); }
+
+  // ---------- export ----------
+  const COLS = [["First name", "first"], ["Last name", "last"], ["Company", "company"], ["Title", "title"], ["Badge type", "badgeType"], ["Note", "note"], ["Event", "event"], ["Badge ID", "badgeId"], ["Scanned at", "scannedAt"], ["Needs check", "status"]];
+  const val = (l, k) => k === "scannedAt" ? stamp(l.scannedAt) : k === "status" ? (l.status === "ok" ? "" : "yes") : String(l[k] ?? "");
+  const rowsOut = () => filtered().slice().sort((a, b) => a.scannedAt - b.scannedAt);
+  const toCSV = (rows) => { const q = (s) => /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; return [COLS.map((c) => c[0]).join(","), ...rows.map((l) => COLS.map(([, k]) => q(val(l, k))).join(","))].join("\r\n"); };
+  const toTSV = (rows) => [COLS.map((c) => c[0]).join("\t"), ...rows.map((l) => COLS.map(([, k]) => val(l, k).replace(/[\t\r\n]+/g, " ")).join("\t"))].join("\n");
+  const fileName = () => `${(settings.event || "badges").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "badges"}-${stamp(Date.now()).slice(0, 10)}.csv`;
+
+  $("#copyBtn").addEventListener("click", () => {
+    const rows = rowsOut(), text = toTSV(rows);
+    const fb = () => { $("#fallback").hidden = false; const t = $("#fallbackText"); t.value = text; t.focus(); t.select(); };
+    try { navigator.clipboard.writeText(text).then(() => toast(`Copied ${rows.length} leads. Paste into Google Sheets.`), fb); } catch { fb(); }
+  });
+  $("#csvBtn").addEventListener("click", () => {
+    const blob = new Blob(["﻿" + toCSV(rowsOut())], { type: "text/csv" });
+    const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = fileName();
+    document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  });
+  try {
+    const probe = new File(["x"], "x.csv", { type: "text/csv" });
+    if (navigator.canShare && navigator.canShare({ files: [probe] })) $("#shareBtn").hidden = false;
+  } catch {}
+  $("#shareBtn").addEventListener("click", async () => {
+    const file = new File(["﻿" + toCSV(rowsOut())], fileName(), { type: "text/csv" });
+    try { await navigator.share({ files: [file], title: settings.event || "Badge leads" }); } catch {}
+  });
+
+  // ---------- events ----------
+  $("#goBtn").addEventListener("click", async () => {
+    try { audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)(); if (audioCtx.state === "suspended") audioCtx.resume(); } catch {}
+    $("#goBtn").disabled = true; $("#goBtn").textContent = "Starting camera";
+    const ok = await startCamera();
+    $("#goBtn").disabled = false; $("#goBtn").textContent = "Start scanning";
+    if (ok) { $("#start").hidden = true; getWorker().catch(() => toast("The name reader couldn't load. Check your signal and reopen the page.")); }
+  });
+  $("#shutter").addEventListener("click", () => {
+    if (!running) return;
+    const fresh = cur && lost === 0;
+    capture(fresh ? cur.box : null, fresh ? cur.data : "");
+  });
+  $("#leadsBtn").addEventListener("click", () => openSheet());
+  $("#evchip").addEventListener("click", () => { openSheet(); setTimeout(() => $("#event").focus(), 50); });
+  $("#closeSheet").addEventListener("click", closeSheet);
+  $("#event").addEventListener("input", (e) => { settings.event = e.target.value.trim().slice(0, 80); saveSettings(); updateEventLabel(); });
+  $("#event").addEventListener("keydown", (e) => { if (e.key === "Enter") e.target.blur(); });
+  $("#sound").checked = !!settings.sound;
+  $("#sound").addEventListener("change", (e) => { settings.sound = e.target.checked; saveSettings(); });
+  let qT; $("#q").addEventListener("input", (e) => { clearTimeout(qT); qT = setTimeout(() => { state.q = e.target.value; renderList(); }, 120); });
+  $("#clearBtn").addEventListener("click", () => {
+    if (!state.clearArmed) { state.clearArmed = true; renderList(); return; }
+    leads = []; taken.clear(); lastId = null; persist(); state.clearArmed = false; renderList(); renderLast(); toast("All leads deleted.");
+  });
+
+  document.addEventListener("click", (e) => {
+    const b = e.target.closest("[data-act]"); if (!b) return;
+    const act = b.dataset.act, li = b.closest("li[data-id]"), id = li && li.dataset.id;
+    if (act === "undo") {
+      const l = leads.find((x) => x.id === lastId); if (!l) return;
+      leads = leads.filter((x) => x !== l); if (l.badgeId) taken.delete(l.badgeId);
+      lastId = null; persist(); renderLast(); updateCounts(); toast("Removed. Point at the badge again to retake it.");
+    } else if (act === "note") {
+      const l = leads.find((x) => x.id === lastId); if (!l) return;
+      openSheet(l.id, l.status === "check" ? "first" : "note");
+    } else if (act === "edit" && id) {
+      state.editing = state.editing === id ? null : id; state.armed = null; renderList();
+    } else if (act === "save" && id) {
+      const l = leads.find((x) => x.id === id); if (!l) return;
+      for (const k of FIELDS) { const el = document.getElementById(`e-${id}-${k}`); if (el) l[k] = k === "note" ? el.value.trim().slice(0, 2000) : el.value.replace(/\s+/g, " ").trim().slice(0, 120); }
+      l.edited = true; if (l.first || l.last) l.status = "ok";
+      persist(); state.editing = null; document.activeElement && document.activeElement.blur && document.activeElement.blur(); renderList(); renderLast(); toast("Saved.");
+    } else if (act === "del" && id) {
+      if (state.armed !== id) { state.armed = id; renderList(); return; }
+      const l = leads.find((x) => x.id === id); leads = leads.filter((x) => x.id !== id);
+      if (l && l.badgeId) taken.delete(l.badgeId);
+      if (lastId === id) lastId = null;
+      state.armed = null; state.editing = null; persist(); renderList(); toast("Lead deleted.");
+    }
+  });
+
+  // Keep screen awake while scanning; restart camera after returning to the app
+  let lock = null;
+  async function wakeLock() { try { if (!lock && navigator.wakeLock) { lock = await navigator.wakeLock.request("screen"); lock.addEventListener("release", () => { lock = null; }); } } catch { lock = null; } }
+  document.addEventListener("visibilitychange", async () => {
+    if (document.visibilityState === "hidden") { if (running) { stopCamera(); window.__resume = true; } }
+    else if (window.__resume) { window.__resume = false; await startCamera(); }
+  });
+
+  updateEventLabel(); updateCounts(); renderLast();
+})();
+</script>
+</body>
+</html>
